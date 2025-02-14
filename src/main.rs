@@ -12,10 +12,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info};
-use tracing_subscriber;
 
-// 将 CONNECT 请求中固定部分预计算后存储
 static CONNECT_SUFFIX: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{}:{}HTTP/1.1\r\nHost: {}\r\nProxy-Connection: Keep-Alive\r\nUser-Agent: {}\r\nX-T5-Auth: {}\r\n\r\n",
@@ -29,36 +26,35 @@ static CONNECT_SUFFIX: LazyLock<String> = LazyLock::new(|| {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    tracing_subscriber::fmt::init();
-    let addr = CONFIG.local_address;
-    let listener = TcpListener::bind(addr).await?;
-    info!("Local HTTP Proxy listening on http://{}", addr);
-
     loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
+        let addr = CONFIG.local_address;
+        let listener = TcpListener::bind(addr).await?;
+        println!("Local HTTP Proxy listening on http://{}", addr);
 
-        tokio::spawn(async move {
-            if let Err(e) = Http1Builder::new()
-                .preserve_header_case(true)
-                .title_case_headers(true)
-                .serve_connection(io, service_fn(handle_request))
-                .with_upgrades()
-                .await
-            {
-                error!("Serve connection error: {:?}", e);
-            }
-        });
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let io = TokioIo::new(stream);
+
+            tokio::spawn(async move {
+                if let Err(e) = Http1Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
+                    .serve_connection(io, service_fn(handle_request))
+                    .with_upgrades()
+                    .await
+                {
+                    eprintln!("Serve connection error: {:?}", e);
+                }
+            });
+        }
     }
 }
 
-// 处理客户端请求，先与远程代理服务器 CONNECT，再转发请求并返回结果
 async fn handle_request(
     req: Request<hyper::body::Incoming>,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
-    info!("Received request: {:?}", req);
+    // println!("Received request: {:?}", req);
 
-    // 提取 host、port
     let host = match req.uri().host() {
         Some(h) => h.to_string(),
         None => {
@@ -75,10 +71,15 @@ async fn handle_request(
         }
     });
 
-    let mut proxy_stream = match TcpStream::connect(&CONFIG.remote_proxy_address.address).await {
+    let mut proxy_stream = match TcpStream::connect((
+        CONFIG.remote_proxy_address.host.clone(),
+        CONFIG.remote_proxy_address.port,
+    ))
+    .await
+    {
         Ok(s) => s,
         Err(e) => {
-            error!("Connect to remote proxy error: {}", e);
+            eprintln!("Connect to remote proxy error: {}", e);
             let mut bad = Response::new(full("Cannot connect to remote proxy"));
             *bad.status_mut() = StatusCode::BAD_GATEWAY;
             return Ok(bad);
@@ -87,10 +88,8 @@ async fn handle_request(
 
     let connect_req = format!("CONNECT {}:{}@{}", host, port, *CONNECT_SUFFIX);
 
-    debug!("CONNECT request: {}", connect_req);
-
     if let Err(e) = proxy_stream.write_all(connect_req.as_bytes()).await {
-        error!("Write CONNECT request to remote proxy error: {}", e);
+        eprintln!("Write CONNECT request to remote proxy error: {}", e);
         let mut bad = Response::new(full("Failed to send CONNECT to remote proxy"));
         *bad.status_mut() = StatusCode::BAD_GATEWAY;
         return Ok(bad);
@@ -100,7 +99,7 @@ async fn handle_request(
     let n = match proxy_stream.read(&mut response_buf).await {
         Ok(n) => n,
         Err(e) => {
-            error!("Read CONNECT response error: {}", e);
+            eprintln!("Read CONNECT response error: {}", e);
             let mut bad = Response::new(full("No response from remote proxy"));
             *bad.status_mut() = StatusCode::BAD_GATEWAY;
             return Ok(bad);
@@ -109,15 +108,6 @@ async fn handle_request(
 
     let resp_str = String::from_utf8_lossy(&response_buf[..n]);
     if !resp_str.contains("200") {
-        // 一般连接失败只是 墙 导致的 远程代理服务器无法连接到目标服务器
-        // 这种情况根本不需要打印错误日志，因为这是正常现象
-        // debug!("Remote proxy CONNECT failed: ");
-        // debug!("Request: {:?}", req);
-        // debug!("Host: {}", host);
-        // debug!("Port: {}", port);
-        // debug!("CONNECT request: {}", connect_req);
-        // debug!("Response: {}", resp_str);
-
         let mut bad = Response::new(full(
             "Remote proxy cannot connect to target server or refused our CONNECT request",
         ));
@@ -125,8 +115,6 @@ async fn handle_request(
         return Ok(bad);
     }
 
-    // 如果客户端是 CONNECT 方法，则直接升级到隧道：复制客户端与代理之间的数据
-    // 否则返回错误响应
     if req.method() == Method::CONNECT {
         tokio::task::spawn(async move {
             match hyper::upgrade::on(req).await {
@@ -134,7 +122,7 @@ async fn handle_request(
                     let mut upgraded = TokioIo::new(upgraded);
                     let _ = tokio::io::copy_bidirectional(&mut upgraded, &mut proxy_stream).await;
                 }
-                Err(e) => error!("upgrade error: {:?}", e),
+                Err(e) => eprintln!("upgrade error: {:?}", e),
             }
         });
         return Ok(Response::new(empty()));
