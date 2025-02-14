@@ -1,0 +1,30 @@
+[package]
+name = "http_proxy"
+version = "0.1.0"
+edition = "2021"
+
+# 避免使用aws-lc-rs, 其不支持aarch64-linux-android
+[dependencies]
+tokio-rustls = { version = "0.26.1", default-features = false }
+rustls = { version = "0.23.23", default-features = false, features = [
+    "ring",
+    "std",
+] }
+bytes = "1.10.0"
+http-body-util = "0.1.2"
+hyper = { version = "1.6.0", features = ["capi", "full"] }
+hyper-util = { version = "0.1.10", features = ["tokio"] }
+pin-project-lite = "0.2.16"
+rustls-native-certs = "0.8.1"
+serde = { version = "1.0.217", features = ["derive", "serde_derive"] }
+tokio = { version = "1.43.0", features = ["full"] }
+toml = "0.8.20"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+
+[dev-dependencies]
+reqwest = { version = "0.12.9", features = [
+    "json",
+    "rustls-tls",
+    "rustls-tls-webpki-roots",
+], default-features = false }
