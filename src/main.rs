@@ -15,12 +15,8 @@ use tokio::net::{TcpListener, TcpStream};
 
 static CONNECT_SUFFIX: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "{}:{}HTTP/1.1\r\nHost: {}\r\nProxy-Connection: Keep-Alive\r\nUser-Agent: {}\r\nX-T5-Auth: {}\r\n\r\n",
-        CONFIG.obfuscation.host,
-        CONFIG.obfuscation.port,
-        CONFIG.obfuscation.host,
-        CONFIG.remote_proxy_address.user_agent,
-        CONFIG.remote_proxy_address.x_t5_auth
+        "{}:{}HTTP/1.1\r\nHost: {}\r\n\r\n",
+        CONFIG.obfuscation.host, CONFIG.obfuscation.port, CONFIG.obfuscation.host,
     )
 });
 

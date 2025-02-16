@@ -1,0 +1,1 @@
+cargo ndk --target aarch64-linux-android build --release

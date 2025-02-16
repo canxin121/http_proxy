@@ -19,8 +19,6 @@ pub struct ObfuscationConfig {
 pub struct RemoteProxyConfig {
     pub host: String,
     pub port: u16,
-    pub user_agent: String,
-    pub x_t5_auth: String,
 }
 
 impl Config {
@@ -48,8 +46,6 @@ mod test {
             remote_proxy_address: RemoteProxyConfig {
                 host: "110.242.70.68".to_string(),
                 port: 443,
-                user_agent: "baiduboxapp".to_string(),
-                x_t5_auth: "914964676".to_string(),
             },
             obfuscation: ObfuscationConfig {
                 host: "gw.alicdn.com".to_string(),
